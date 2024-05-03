@@ -8,12 +8,27 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
     tree = ast.parse(source_code)
 
     class StubGenerator(ast.NodeVisitor):
-        def __init__(self):
-            self.stubs = []
-            self.imports_output = set()
+        def __init__(self) -> None:
+            self.stubs: list[str] = []
+            self.imports_helper_dict: dict[str, set[str]] = {}
+            self.imports_output: set[str] = set()
             self.typing_imports = typing.__all__
 
-        def visit_FunctionDef(self, node):
+        def visit_Import(self, node: ast.Import) -> typing.Any:
+            for alias in node.names:
+                name = alias.name
+                self.imports_output.add(f"import {name}")
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> typing.Any:
+            module = node.module
+            for alias in node.names:
+                name = alias.name
+                if module:
+                    if module not in self.imports_helper_dict:
+                        self.imports_helper_dict[module] = set()
+                    self.imports_helper_dict[module].add(name)
+
+        def visit_FunctionDef(self, node) -> None:
             if any(isinstance(n, ast.ClassDef) for n in ast.walk(tree)):
                 if self.is_method(node):
                     self.visit_MethodDef(node)
@@ -22,21 +37,41 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
             else:
                 self.visit_RegularFunctionDef(node)
 
-        def is_method(self, node):
+        def visit_Assign(self, node: ast.Assign) -> None:
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    target_name = target.id
+                    target_type = ast.unparse(node.value).strip()
+                    stub = f"{target_name} = {target_type}\n"
+                    self.stubs.append(stub)
+                elif isinstance(target, ast.Subscript):
+                    if isinstance(target.value, ast.Name):
+                        target_name = target.value.id
+                    target_type = ast.unparse(node.value).strip()
+                    stub = f"{target_name}: {target_type}\n"
+                    self.stubs.append(stub)
+
+        def is_method(self, node) -> bool:
             for parent_node in ast.walk(tree):
                 if isinstance(parent_node, ast.ClassDef):
                     for child_node in parent_node.body:
-                        if isinstance(child_node, ast.FunctionDef) and child_node.name == node.name:
+                        if (
+                            isinstance(child_node, ast.FunctionDef)
+                            and child_node.name == node.name
+                        ):
                             return True
             return False
 
-        def visit_MethodDef(self, node: ast.FunctionDef):
+        def visit_MethodDef(self, node: ast.FunctionDef) -> None:
             args_list = []
             for arg in node.args.args:
                 arg_type = self.get_arg_type(arg)
                 args_list.append(f"{arg.arg}: {arg_type}")
+            if node.returns:
+                return_type = self.get_return_type(node.returns)
+            else:
+                return_type = "typing.Any"
 
-            return_type = self.get_return_type(node.returns)
             if return_type in self.typing_imports:
                 self.imports_output.add(return_type)
             # handle the case where the node.name is __init__, __init__ is a special case which always returns None
@@ -45,26 +80,39 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
             stub = f"    def {node.name}({', '.join(args_list)}) -> {return_type}:\n        ...\n"
             self.stubs.append(stub)
 
-        def visit_RegularFunctionDef(self, node: ast.FunctionDef):
+        def visit_RegularFunctionDef(self, node: ast.FunctionDef) -> None:
             args_list = []
             for arg in node.args.args:
                 arg_type = self.get_arg_type(arg)
                 args_list.append(f"{arg.arg}: {arg_type}")
-
-            return_type = self.get_return_type(node.returns)
-            stub = f"def {node.name}({', '.join(args_list)}) -> {return_type}:\n    ...\n"
+            if node.returns:
+                return_type = self.get_return_type(node.returns)
+            stub = (
+                f"def {node.name}({', '.join(args_list)}) -> {return_type}:\n    ...\n"
+            )
             self.stubs.append(stub)
 
-        def visit_ClassDef(self, node):
+        def visit_ClassDef(self, node) -> None:
             class_name = node.name
             stub = ""
             case = self.special_cases(node)
             if case == "TypedDict":
-                stub = f"class {class_name}(typing.TypedDict):\n"
+                stub = f"class {class_name}(TypedDict):\n"
+                if "typing" not in self.imports_helper_dict:
+                    self.imports_helper_dict["typing"] = set()
+                self.imports_helper_dict["typing"].add("TypedDict")
                 for key in node.body:
-                    if isinstance(key, ast.AnnAssign):
-                        key_type = ast.unparse(key.annotation).strip()
-                        stub += f"    {key.target.id}: {key_type}\n"
+                    if isinstance(key, ast.Assign):
+                        for target in key.targets:
+                            if isinstance(target, ast.Name):
+                                target_name = target.id
+                                target_type = ast.unparse(key.value).strip()
+                                stub += f"    {target_name}: {target_type}\n"
+                            elif isinstance(target, ast.Subscript):
+                                if isinstance(target.value, ast.Name):
+                                    target_name = target.value.id
+                                target_type = ast.unparse(key.value).strip()
+                                stub += f"    {target_name}: {target_type}\n"
                 stub += "\n"
             elif case == "Exception":
                 stub = f"class {class_name}(Exception):\n"
@@ -84,7 +132,7 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
                 for method in methods:
                     self.visit_FunctionDef(method)
 
-        def special_cases(self, node) -> str:
+        def special_cases(self, node) -> str | bool:
             for obj in node.bases:
                 if isinstance(obj, ast.Name) and obj.id == "TypedDict":
                     return "TypedDict"
@@ -97,33 +145,60 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
         def get_arg_type(self, arg_node: ast.arg) -> str:
             selfs = ["self", "cls"]
             if arg_node.arg in selfs:
+                if not "Self" in self.imports_output:
+                    self.imports_helper_dict["typing"].add("Self")
                 return "Self"
             elif arg_node.annotation:
                 unparsed = ast.unparse(arg_node.annotation).strip()
                 return unparsed
 
-            raise ValueError(f"Argument {arg_node.arg} in {arg_node.lineno} has no type annotation")
+            raise ValueError(
+                f"Argument {arg_node.arg} in {arg_node.lineno} has no type annotation"
+            )
 
         def get_return_type(self, return_node: ast.AST) -> str:
             if return_node:
                 unparsed = ast.unparse(return_node).strip()
                 return unparsed
-            return "typing.Any"
+            else:
+                return "typing.Any"
 
-        def generate_imports(self):
-            self.imports_output.add("from typing import Any, Optional, Self")
-            self.imports_output.add("import typing")
+        def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+            target = node.target
+            if isinstance(node.annotation, ast.Name):
+                target_type = node.annotation.id
+            else:
+                target_type = ast.unparse(node.annotation).strip()
+
+            if isinstance(node.annotation, ast.Subscript):
+                if isinstance(target, ast.Name):
+                    stub = f"{target.id}: {target_type}\n"
+                elif isinstance(target, ast.Name):
+                    stub = f"{target.id}: {target_type}\n"
+            self.stubs.append(stub)
+
+        def generate_imports(self) -> str:
+            imports = ""
+            for module, names in self.imports_helper_dict.items():
+                imports += f"\nfrom {module} import {', '.join(names)}"
+
             self.imports_output.add("from __future__ import annotations")
-            imports = "\n".join(sorted(self.imports_output))
+            for import_name in self.imports_output:
+                imports += f"\n{import_name}"
+
             imports += "\n\n"
+
             return imports
 
     stub_generator = StubGenerator()
     stub_generator.visit(tree)
 
     with open(output_file_path, "w") as output_file:
+        out_str = ""
         sempt = stub_generator.generate_imports()
         if sempt:
-            output_file.write(sempt)
+            out_str += sempt
         for stub in stub_generator.stubs:
-            output_file.write(stub)
+            out_str += stub
+
+        output_file.write(out_str)
