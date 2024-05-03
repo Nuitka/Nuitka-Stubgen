@@ -77,6 +77,23 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
             # handle the case where the node.name is __init__, __init__ is a special case which always returns None
             if node.name == "__init__":
                 return_type = "None"
+            if node.decorator_list:
+                for decorator in node.decorator_list:
+                    if isinstance(decorator, ast.Name):
+                        if decorator.id == "classmethod":
+                            args_list = args_list[1:]
+                            stub = f"    @classmethod\n    def {node.name}({', '.join(args_list)}) -> {return_type}:\n        ...\n"
+                            self.stubs.append(stub)
+                            return
+
+                        elif decorator.id == "staticmethod":
+                            stub = f"    @staticmethod\n    def {node.name}({', '.join(args_list)}) -> {return_type}:\n        ...\n"
+                            self.stubs.append(stub)
+                            return
+                        else:
+                            stub = f"    def {node.name}({', '.join(args_list)}) -> {return_type}:\n        ...\n"
+                            self.stubs.append(stub)
+                            return
             stub = f"    def {node.name}({', '.join(args_list)}) -> {return_type}:\n        ...\n"
             self.stubs.append(stub)
 
@@ -87,6 +104,8 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
                 args_list.append(f"{arg.arg}: {arg_type}")
             if node.returns:
                 return_type = self.get_return_type(node.returns)
+            else:
+                return_type = "typing.Any"
             stub = (
                 f"def {node.name}({', '.join(args_list)}) -> {return_type}:\n    ...\n"
             )
@@ -119,12 +138,16 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
 
                 if not any(isinstance(n, ast.FunctionDef) for n in node.body):
                     stub += "    ...\n"
+            elif case == "NamedTuple":
+                stub = f"class {class_name}(NamedTuple):\n"
+                self.imports_output.add("from typing import NamedTuple")
             else:
                 is_dataclass = any(isinstance(n, ast.AnnAssign) for n in node.body)
                 if is_dataclass:
                     stub = "@dataclass\n"
                     self.imports_output.add("from dataclasses import dataclass")
                 stub += f"class {class_name}:\n"
+
             self.stubs.append(stub)
             methods = [n for n in node.body if isinstance(n, ast.FunctionDef)]
             if methods:
@@ -138,23 +161,25 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
                     return "TypedDict"
                 elif isinstance(obj, ast.Name) and obj.id == "Exception":
                     return "Exception"
+                elif isinstance(obj, ast.Name) and obj.id == "NamedTuple":
+                    return "NamedTuple"
+                # if a decorator list is present, check if it contains classmethod or staticmethod
                 else:
-                    print(f"Skipping {obj.id} in {node.lineno}, of type {type(obj)}")
+                    return False
             return False
 
         def get_arg_type(self, arg_node: ast.arg) -> str:
             selfs = ["self", "cls"]
             if arg_node.arg in selfs:
-                if not "Self" in self.imports_output:
-                    self.imports_helper_dict["typing"].add("Self")
+                if not "typing" in self.imports_helper_dict:
+                    self.imports_helper_dict["typing"] = set()
+                self.imports_helper_dict["typing"].add("Self")
                 return "Self"
             elif arg_node.annotation:
                 unparsed = ast.unparse(arg_node.annotation).strip()
                 return unparsed
-
-            raise ValueError(
-                f"Argument {arg_node.arg} in {arg_node.lineno} has no type annotation"
-            )
+            else:
+                return "typing.Any"
 
         def get_return_type(self, return_node: ast.AST) -> str:
             if return_node:
@@ -175,6 +200,20 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
                     stub = f"{target.id}: {target_type}\n"
                 elif isinstance(target, ast.Name):
                     stub = f"{target.id}: {target_type}\n"
+            elif isinstance(node.annotation, ast.Name):
+                if isinstance(target, ast.Name):
+                    stub = f"{target.id}: {target_type}\n"
+                elif isinstance(target, ast.Subscript):
+                    if isinstance(target.value, ast.Name):
+                        target_name = target.value.id
+                    stub = f"{target_name}: {target_type}\n"
+            else:
+                # print(f"Skipping type {type(node.annotation)} in AnnAssign on {node}")
+                # stub = f"{target.id}: {target_type}\n"
+                raise NotImplementedError(
+                    f"Type {type(node.annotation)} not implemented, report this issue"
+                )
+
             self.stubs.append(stub)
 
         def generate_imports(self) -> str:
