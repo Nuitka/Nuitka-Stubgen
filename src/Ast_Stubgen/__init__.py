@@ -1,4 +1,4 @@
-"""A wrapper for PyPI's API and RSS feed."""
+"""Generate stub files for Python modules."""
 
 from .stubgen import generate_text_stub, generate_stub
 
