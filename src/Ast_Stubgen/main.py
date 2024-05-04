@@ -2,7 +2,10 @@ import ast
 import typing
 
 
-def generate_stub(source_file_path: str, output_file_path: str) -> None:
+def generate_stub(
+    source_file_path: str, output_file_path: str, text_only=False
+) -> str | None:
+
     with open(source_file_path, "r", encoding="utf-8") as source_file:
         source_code = source_file.read()
     tree = ast.parse(source_code)
@@ -231,13 +234,26 @@ def generate_stub(source_file_path: str, output_file_path: str) -> None:
 
     stub_generator = StubGenerator()
     stub_generator.visit(tree)
+    out_str = ""
+    sempt = stub_generator.generate_imports()
+    if sempt:
+        out_str += sempt
+    for stub in stub_generator.stubs:
+        out_str += stub
 
-    with open(output_file_path, "w") as output_file:
-        out_str = ""
-        sempt = stub_generator.generate_imports()
-        if sempt:
-            out_str += sempt
-        for stub in stub_generator.stubs:
-            out_str += stub
+    if text_only:
+        return out_str
+    else:
 
-        output_file.write(out_str)
+        with open(output_file_path, "w") as output_file:
+            output_file.write(out_str)
+
+        return None
+
+
+def generate_text_stub(source_file_path: str) -> str:
+    stubs = generate_stub(source_file_path, "", text_only=True)
+    if stubs:
+        return stubs
+    else:
+        raise ValueError("Stub generation failed")
