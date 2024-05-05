@@ -3,7 +3,7 @@ import typing
 
 
 def generate_stub(
-    source_file_path: str, output_file_path: str, text_only=False
+    source_file_path: str, output_file_path: str, text_only: bool = False
 ) -> str | None:
 
     with open(source_file_path, "r", encoding="utf-8") as source_file:
@@ -17,12 +17,11 @@ def generate_stub(
             self.imports_output: set[str] = set()
             self.typing_imports = typing.__all__
 
-        def visit_Import(self, node: ast.Import) -> typing.Any:
+        def visit_Import(self, node: ast.Import) -> None:
             for alias in node.names:
-                name = alias.name
-                self.imports_output.add(f"import {name}")
+                self.imports_output.add(f"import {alias.name}")
 
-        def visit_ImportFrom(self, node: ast.ImportFrom) -> typing.Any:
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
             module = node.module
             for alias in node.names:
                 name = alias.name
@@ -31,7 +30,8 @@ def generate_stub(
                         self.imports_helper_dict[module] = set()
                     self.imports_helper_dict[module].add(name)
 
-        def visit_FunctionDef(self, node) -> None:
+        # def visit_FunctionDef(self, node) -> None:
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
             if any(isinstance(n, ast.ClassDef) for n in ast.walk(tree)):
                 if self.is_method(node):
                     self.visit_MethodDef(node)
@@ -45,8 +45,23 @@ def generate_stub(
                 if isinstance(target, ast.Name):
                     target_name = target.id
                     target_type = ast.unparse(node.value).strip()
-                    stub = f"{target_name} = {target_type}\n"
-                    self.stubs.append(stub)
+                    if target_type in self.typing_imports:
+                        self.imports_output.add(target_type)
+                    if target_type in self.typing_imports:
+                        stub = f"{target_name}: {target_type}\n"
+                        self.stubs.append(stub)
+                    else:
+                        if isinstance(node.value, ast.Call):
+                            if type(node.value.func) == ast.Name:
+                                if node.value.func.id == "frozenset":
+                                    stub = f"{target_name} = frozenset({', '.join([ast.unparse(arg).strip() for arg in node.value.args])})\n"
+                                    self.stubs.append(stub)
+                                elif node.value.func.id == "namedtuple":
+                                    tuple_name = ast.unparse(node.value.args[0]).strip()
+
+                                    stub = f"{target_name} =  namedtuple({tuple_name}, {', '.join([ast.unparse(arg).strip() for arg in node.value.args[1:]])})\n"
+                                    self.stubs.append(stub)
+
                 elif isinstance(target, ast.Subscript):
                     if isinstance(target.value, ast.Name):
                         target_name = target.value.id
@@ -54,7 +69,7 @@ def generate_stub(
                     stub = f"{target_name}: {target_type}\n"
                     self.stubs.append(stub)
 
-        def is_method(self, node) -> bool:
+        def is_method(self, node: ast.FunctionDef) -> bool:
             for parent_node in ast.walk(tree):
                 if isinstance(parent_node, ast.ClassDef):
                     for child_node in parent_node.body:
@@ -114,7 +129,7 @@ def generate_stub(
             )
             self.stubs.append(stub)
 
-        def visit_ClassDef(self, node) -> None:
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
             class_name = node.name
             stub = ""
             case = self.special_cases(node)
@@ -158,17 +173,18 @@ def generate_stub(
                 for method in methods:
                     self.visit_FunctionDef(method)
 
-        def special_cases(self, node) -> str | bool:
+        def special_cases(self, node: ast.ClassDef) -> str | bool:
             for obj in node.bases:
-                if isinstance(obj, ast.Name) and obj.id == "TypedDict":
-                    return "TypedDict"
-                elif isinstance(obj, ast.Name) and obj.id == "Exception":
-                    return "Exception"
-                elif isinstance(obj, ast.Name) and obj.id == "NamedTuple":
-                    return "NamedTuple"
-                # if a decorator list is present, check if it contains classmethod or staticmethod
-                else:
-                    return False
+                ob_instance = isinstance(obj, ast.Name)
+                if ob_instance:
+                    if obj.id == "TypedDict":  # type: ignore
+                        return "TypedDict"
+                    elif obj.id == "Exception":  # type: ignore
+                        return "Exception"
+                    elif obj.id == "NamedTuple":  # type: ignore
+                        return "NamedTuple"
+                    else:
+                        return False
             return False
 
         def get_arg_type(self, arg_node: ast.arg) -> str:
@@ -220,16 +236,16 @@ def generate_stub(
             self.stubs.append(stub)
 
         def generate_imports(self) -> str:
-            imports = ""
+            imports_helper = set()
             sorted_items = sorted(self.imports_helper_dict.items())
             for module, names in sorted_items:
-                imports += f"\nfrom {module} import {', '.join(sorted(names))}"
+                imports_helper.add(f"from {module} import {', '.join(sorted(names))}")
+
+            imports_helper.update(self.imports_output)
 
             self.imports_output.add("from __future__ import annotations")
-            for import_name in self.imports_output:
-                imports += f"\n{import_name}"
 
-            imports += "\n\n"
+            imports = "".join([f"{imp}\n" for imp in imports_helper])
 
             return imports
 
