@@ -1,10 +1,19 @@
 [project]
 name = "AST_Stubgen"
-version = "0.1.0"
+version = "0.1.5"
 description = "Generate Python type stubs from your code using the AST."
 authors = [{ name = "KRRT7", email = "turcioskevinr@gmail.com" }]
 license = { text = "MIT" }
 readme = "README.md"
 requires-python = ">=3.6"
+
 [project.urls]
 repository = "https://github.com/KRRT7/AST_Stubgen"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+ordered-set = ["ordered-set"]
+extras = ["ordered-set"]
