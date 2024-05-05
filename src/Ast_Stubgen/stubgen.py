@@ -1,12 +1,5 @@
 import ast
 import typing
-from collections import OrderedDict
-HAVE_ORDERED_SET = False
-try:
-    import ordered_set
-    HAVE_ORDERED_SET = True
-except ImportError:
-    HAVE_ORDERED_SET = False
 
 def generate_stub(
     source_file_path: str, output_file_path: str, text_only=False
@@ -19,11 +12,8 @@ def generate_stub(
     class StubGenerator(ast.NodeVisitor):
         def __init__(self) -> None:
             self.stubs: list[str] = []
-            self.imports_helper_dict: dict[str, set[str]] = OrderedDict()
-            if HAVE_ORDERED_SET:
-                self.imports_output: ordered_set.OrderedSet[str] = ordered_set.OrderedSet()
-            else:
-                self.imports_output: set[str] = set()
+            self.imports_helper_dict: dict[str, set[str]] = {}
+            self.imports_output: set[str] = set()
             self.typing_imports = typing.__all__
 
         def visit_Import(self, node: ast.Import) -> typing.Any:
@@ -230,8 +220,9 @@ def generate_stub(
 
         def generate_imports(self) -> str:
             imports = ""
-            for module, names in self.imports_helper_dict.items():
-                imports += f"\nfrom {module} import {', '.join(names)}"
+            sorted_items = sorted(self.imports_helper_dict.items())
+            for module, names in sorted_items:
+                imports += f"\nfrom {module} import {', '.join(sorted(names))}"
 
             self.imports_output.add("from __future__ import annotations")
             for import_name in self.imports_output:
