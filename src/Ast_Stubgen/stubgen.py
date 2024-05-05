@@ -1,6 +1,7 @@
 import ast
 import typing
 
+
 def generate_stub(
     source_file_path: str, output_file_path: str, text_only=False
 ) -> str | None:
