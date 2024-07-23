@@ -52,7 +52,7 @@ def generate_stub(
                         self.stubs.append(stub)
                     else:
                         if isinstance(node.value, ast.Call):
-                            if type(node.value.func) == ast.Name:
+                            if isinstance(node.value.func, ast.Name):
                                 if node.value.func.id == "frozenset":
                                     stub = f"{target_name} = frozenset({', '.join([ast.unparse(arg).strip() for arg in node.value.args])})\n"
                                     self.stubs.append(stub)
@@ -190,7 +190,7 @@ def generate_stub(
         def get_arg_type(self, arg_node: ast.arg) -> str:
             selfs = ["self", "cls"]
             if arg_node.arg in selfs:
-                if not "typing" in self.imports_helper_dict:
+                if "typing" not in self.imports_helper_dict:
                     self.imports_helper_dict["typing"] = set()
                 self.imports_helper_dict["typing"].add("Self")
                 return "Self"
