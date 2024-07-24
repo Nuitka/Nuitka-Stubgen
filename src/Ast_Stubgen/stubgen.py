@@ -100,7 +100,7 @@ def generate_stub(
                     if isinstance(decorator, ast.Name):
                         if decorator.id == "classmethod":
                             args_list = args_list[1:]
-                            stub = f"    @classmethod\n    def {node.name}({', '.join(args_list)}) -> {return_type}:\n        ...\n"
+                            stub = f"    @classmethod\n    def {node.name}(cls, {', '.join(args_list)}) -> {return_type}:\n        ...\n"
                             self.stubs.append(stub)
                             return
 
@@ -247,7 +247,7 @@ def generate_stub(
 
             imports = "".join([f"{imp}\n" for imp in imports_helper])
 
-            return imports
+            return imports + "\n"
 
     stub_generator = StubGenerator()
     stub_generator.visit(tree)
