@@ -30,7 +30,6 @@ def generate_stub(
                         self.imports_helper_dict[module] = set()
                     self.imports_helper_dict[module].add(name)
 
-        # def visit_FunctionDef(self, node) -> None:
         def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
             if any(isinstance(n, ast.ClassDef) for n in ast.walk(tree)):
                 if self.is_method(node):
@@ -61,6 +60,15 @@ def generate_stub(
 
                                     stub = f"{target_name} =  namedtuple({tuple_name}, {', '.join([ast.unparse(arg).strip() for arg in node.value.args[1:]])})\n"
                                     self.stubs.append(stub)
+                        elif isinstance(node.value, ast.Subscript):
+                            if isinstance(node.value.value, ast.Name):
+                                target_name = node.value.value.id
+                            target_type = ast.unparse(node.value).strip()
+                            if "typing" not in self.imports_helper_dict:
+                                self.imports_helper_dict["typing"] = set()
+                            self.imports_helper_dict["typing"].add("TypeAlias")
+                            stub = f"{target_name}: TypeAlias = {target_type}\n"
+                            self.stubs.append(stub)
 
                 elif isinstance(target, ast.Subscript):
                     if isinstance(target.value, ast.Name):
@@ -100,19 +108,22 @@ def generate_stub(
                     if isinstance(decorator, ast.Name):
                         if decorator.id == "classmethod":
                             args_list = args_list[1:]
-                            stub = f"    @classmethod\n    def {node.name}(cls, {', '.join(args_list)}) -> {return_type}:\n        ...\n"
+                            stub = f"    @classmethod\n    def {node.name}(cls, {', '.join(args_list)}) -> {return_type}: ...\n"
+
                             self.stubs.append(stub)
                             return
 
                         elif decorator.id == "staticmethod":
-                            stub = f"    @staticmethod\n    def {node.name}({', '.join(args_list)}) -> {return_type}:\n        ...\n"
+                            stub = f"    @staticmethod\n    def {node.name}({', '.join(args_list)}) -> {return_type}: ...\n"
                             self.stubs.append(stub)
                             return
                         else:
-                            stub = f"    def {node.name}({', '.join(args_list)}) -> {return_type}:\n        ...\n"
+                            stub = f"    def {node.name}({', '.join(args_list)}) -> {return_type}: ...\n"
                             self.stubs.append(stub)
                             return
-            stub = f"    def {node.name}({', '.join(args_list)}) -> {return_type}:\n        ...\n"
+            stub = (
+                f"    def {node.name}({', '.join(args_list)}) -> {return_type}: ...\n"
+            )
             self.stubs.append(stub)
 
         def visit_RegularFunctionDef(self, node: ast.FunctionDef) -> None:
@@ -150,12 +161,23 @@ def generate_stub(
                                     target_name = target.value.id
                                 target_type = ast.unparse(key.value).strip()
                                 stub += f"    {target_name}: {target_type}\n"
+                    elif isinstance(key, ast.AnnAssign):
+                        target = key.target
+                        if isinstance(target, ast.Name):
+                            target_name = target.id
+                            target_type = ast.unparse(key.annotation).strip()
+                            stub += f"    {target_name}: {target_type}\n"
+                        elif isinstance(target, ast.Subscript):
+                            if isinstance(target.value, ast.Name):
+                                target_name = target.value.id
+                            target_type = ast.unparse(key.annotation).strip()
+                            stub += f"    {target_name}: {target_type}\n"
                 stub += "\n"
             elif case == "Exception":
-                stub = f"class {class_name}(Exception):\n"
-
                 if not any(isinstance(n, ast.FunctionDef) for n in node.body):
-                    stub += "    ...\n"
+                    stub = f"\nclass {class_name}(Exception): ..."
+                else:
+                    stub = f"\nclass {class_name}(Exception):"
             elif case == "NamedTuple":
                 stub = f"class {class_name}(NamedTuple):\n"
                 self.imports_output.add("from typing import NamedTuple")
@@ -164,7 +186,7 @@ def generate_stub(
                 if is_dataclass:
                     stub = "@dataclass\n"
                     self.imports_output.add("from dataclasses import dataclass")
-                stub += f"class {class_name}:\n"
+                stub += f"class {class_name}:"
 
             self.stubs.append(stub)
             methods = [n for n in node.body if isinstance(n, ast.FunctionDef)]
@@ -227,8 +249,6 @@ def generate_stub(
                         target_name = target.value.id
                     stub = f"{target_name}: {target_type}\n"
             else:
-                # print(f"Skipping type {type(node.annotation)} in AnnAssign on {node}")
-                # stub = f"{target.id}: {target_type}\n"
                 raise NotImplementedError(
                     f"Type {type(node.annotation)} not implemented, report this issue"
                 )
