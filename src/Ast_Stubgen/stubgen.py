@@ -1,10 +1,20 @@
+from __future__ import annotations
 import ast
+import sys
 import typing
+
+if sys.version_info < (3, 9):
+    from astunparser.astunparser import unparse
+
+    ast.unparse = unparse
 
 
 def generate_stub(
-    source_file_path: str, output_file_path: str, text_only: bool = False
-) -> str | None:
+    source_file_path: str,
+    output_file_path: str,
+    text_only: bool = False,
+    # ) -> str | None:
+) -> typing.Union[str, None]:
 
     with open(source_file_path, "r", encoding="utf-8") as source_file:
         source_code = source_file.read()
@@ -64,9 +74,11 @@ def generate_stub(
                             if isinstance(node.value.value, ast.Name):
                                 target_name = node.value.value.id
                             target_type = ast.unparse(node.value).strip()
-                            if "typing" not in self.imports_helper_dict:
-                                self.imports_helper_dict["typing"] = set()
-                            self.imports_helper_dict["typing"].add("TypeAlias")
+                            if "typing_extensions" not in self.imports_helper_dict:
+                                self.imports_helper_dict["typing_extensions"] = set()
+                            self.imports_helper_dict["typing_extensions"].add(
+                                "TypeAlias"
+                            )
                             stub = f"{target_name}: TypeAlias = {target_type}\n"
                             self.stubs.append(stub)
 
@@ -195,7 +207,8 @@ def generate_stub(
                 for method in methods:
                     self.visit_FunctionDef(method)
 
-        def special_cases(self, node: ast.ClassDef) -> str | bool:
+        # def special_cases(self, node: ast.ClassDef) -> str | bool:
+        def special_cases(self, node: ast.ClassDef) -> typing.Union[str, bool]:
             for obj in node.bases:
                 ob_instance = isinstance(obj, ast.Name)
                 if ob_instance:
@@ -212,9 +225,9 @@ def generate_stub(
         def get_arg_type(self, arg_node: ast.arg) -> str:
             selfs = ["self", "cls"]
             if arg_node.arg in selfs:
-                if "typing" not in self.imports_helper_dict:
-                    self.imports_helper_dict["typing"] = set()
-                self.imports_helper_dict["typing"].add("Self")
+                if "typing_extensions" not in self.imports_helper_dict:
+                    self.imports_helper_dict["typing_extensions"] = set()
+                self.imports_helper_dict["typing_extensions"].add("Self")
                 return "Self"
             elif arg_node.annotation:
                 unparsed = ast.unparse(arg_node.annotation).strip()
