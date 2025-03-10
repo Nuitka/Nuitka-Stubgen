@@ -110,7 +110,17 @@ def generate_stub(
             if node.returns:
                 return_type = self.get_return_type(node.returns)
             else:
-                return_type = "typing.Any"
+                return_type = "Any"
+                # Add typing import for Any
+                if "typing" not in self.imports_helper_dict:
+                    self.imports_helper_dict["typing"] = set()
+                self.imports_helper_dict["typing"].add("Any")
+
+            # Check if Any is used in any argument types
+            if any("Any" == arg.split(":")[-1].strip() for arg in args_list):
+                if "typing" not in self.imports_helper_dict:
+                    self.imports_helper_dict["typing"] = set()
+                self.imports_helper_dict["typing"].add("Any")
 
             if return_type in self.typing_imports:
                 self.imports_output.add(return_type)
@@ -148,7 +158,18 @@ def generate_stub(
             if node.returns:
                 return_type = self.get_return_type(node.returns)
             else:
-                return_type = "typing.Any"
+                return_type = "Any"
+                # Add typing import for Any
+                if "typing" not in self.imports_helper_dict:
+                    self.imports_helper_dict["typing"] = set()
+                self.imports_helper_dict["typing"].add("Any")
+                
+            # Check if Any is used in any argument types
+            if any("Any" == arg.split(":")[-1].strip() for arg in args_list):
+                if "typing" not in self.imports_helper_dict:
+                    self.imports_helper_dict["typing"] = set()
+                self.imports_helper_dict["typing"].add("Any")
+                
             stub = (
                 f"def {node.name}({', '.join(args_list)}) -> {return_type}:\n    ...\n"
             )
@@ -233,16 +254,32 @@ def generate_stub(
                 return "Self"
             elif arg_node.annotation:
                 unparsed = ast.unparse(arg_node.annotation).strip()
+                # Check if the type is a fully qualified typing import
+                if unparsed.startswith("typing."):
+                    type_name = unparsed.split(".")[-1]
+                    if "typing" not in self.imports_helper_dict:
+                        self.imports_helper_dict["typing"] = set()
+                    self.imports_helper_dict["typing"].add(type_name)
+                    return type_name
                 return unparsed
             else:
-                return "typing.Any"
+                # No annotation means Any type
+                return "Any"
 
         def get_return_type(self, return_node: ast.AST) -> str:
             if return_node:
                 unparsed = ast.unparse(return_node).strip()
+                # Check if the type is a fully qualified typing import
+                if unparsed.startswith("typing."):
+                    type_name = unparsed.split(".")[-1]
+                    if "typing" not in self.imports_helper_dict:
+                        self.imports_helper_dict["typing"] = set()
+                    self.imports_helper_dict["typing"].add(type_name)
+                    return type_name
                 return unparsed
             else:
-                return "typing.Any"
+                # No annotation means Any type
+                return "Any"
 
         def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
             target = node.target
@@ -250,6 +287,13 @@ def generate_stub(
                 target_type = node.annotation.id
             else:
                 target_type = ast.unparse(node.annotation).strip()
+                # Check if the type is a fully qualified typing import
+                if target_type.startswith("typing."):
+                    type_name = target_type.split(".")[-1]
+                    if "typing" not in self.imports_helper_dict:
+                        self.imports_helper_dict["typing"] = set()
+                    self.imports_helper_dict["typing"].add(type_name)
+                    target_type = type_name
 
             if isinstance(node.annotation, ast.Subscript):
                 if isinstance(target, ast.Name):
