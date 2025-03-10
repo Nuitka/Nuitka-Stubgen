@@ -32,7 +32,7 @@ def generate_stub(
                 self.imports_output.add(f"import {alias.name}")
 
         def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-            module = node.module
+            module = node.module if node.module is not None else "."
             for alias in node.names:
                 name = alias.name
                 if module:
@@ -85,6 +85,8 @@ def generate_stub(
                 elif isinstance(target, ast.Subscript):
                     if isinstance(target.value, ast.Name):
                         target_name = target.value.id
+                    else:
+                        continue
                     target_type = ast.unparse(node.value).strip()
                     stub = f"{target_name}: {target_type}\n"
                     self.stubs.append(stub)
