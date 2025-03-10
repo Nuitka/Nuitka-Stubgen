@@ -36,14 +36,9 @@ def preprocess_source(source_code: str) -> str:
     return ast.unparse(transformed_tree)
 
 
-def generate_stub(
-    source_file_path: str,
-    output_file_path: str,
-    text_only: bool = False,
+def generate_stub_from_source(
+    source_code: str, output_file_path: str, text_only: bool = False
 ) -> typing.Union[str, None]:
-    with open(source_file_path, "r", encoding="utf-8") as source_file:
-        source_code = source_file.read()
-
     preprocessed_code = preprocess_source(source_code)
     tree = ast.parse(preprocessed_code)
 
@@ -519,6 +514,17 @@ def generate_stub(
         with open(output_file_path, "w") as output_file:
             output_file.write(out_str)
         return None
+
+
+def generate_stub(
+    source_file_path: str, output_file_path: str, text_only: bool = False
+) -> typing.Union[str, None]:
+    with open(source_file_path, "r", encoding="utf-8") as source_file:
+        source_code = source_file.read()
+
+    return generate_stub_from_source(
+        source_code=source_code, output_file_path=output_file_path, text_only=text_only
+    )
 
 
 def generate_text_stub(source_file_path: str) -> str:
