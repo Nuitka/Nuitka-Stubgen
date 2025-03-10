@@ -26,6 +26,7 @@ def generate_stub(
             self.typing_imports = typing.__all__
             self.in_class = False
             self.indentation_level = 0
+            self.typevars: set[str] = set()
 
         def visit_Import(self, node: ast.Import) -> None:
             for alias in node.names:
@@ -61,6 +62,26 @@ def generate_stub(
                 if isinstance(target, ast.Name):
                     target_name = target.id
                     target_type = ast.unparse(node.value).strip()
+
+                    if (
+                        isinstance(node.value, ast.Call)
+                        and isinstance(node.value.func, ast.Name)
+                        and node.value.func.id == "TypeVar"
+                    ):
+                        if "typing" not in self.imports_helper_dict:
+                            self.imports_helper_dict["typing"] = set()
+                        self.imports_helper_dict["typing"].add("TypeVar")
+                        self.typevars.add(target_name)
+                        # Add TypeVar to the stubs
+                        if node.value.args:
+                            typevar_def = f"{target_name} = TypeVar({', '.join([ast.unparse(arg) for arg in node.value.args])})"
+                            self.stubs.append(typevar_def + "\n\n")
+                        else:
+                            self.stubs.append(
+                                f'{target_name} = TypeVar("{target_name}")\n\n'
+                            )
+                        continue
+
                     if target_type in self.typing_imports:
                         self.imports_output.add(target_type)
                     if target_type in self.typing_imports:
@@ -74,9 +95,14 @@ def generate_stub(
                                     self.stubs.append(stub)
                                 elif node.value.func.id == "namedtuple":
                                     tuple_name = ast.unparse(node.value.args[0]).strip()
-
                                     stub = f"{target_name} =  namedtuple({tuple_name}, {', '.join([ast.unparse(arg).strip() for arg in node.value.args[1:]])})\n"
                                     self.stubs.append(stub)
+                                elif node.value.func.id == "TypeVar":
+                                    # Add TypeVar import
+                                    if "typing" not in self.imports_helper_dict:
+                                        self.imports_helper_dict["typing"] = set()
+                                    self.imports_helper_dict["typing"].add("TypeVar")
+                                    self.typevars.add(target_name)
                         elif isinstance(node.value, ast.Subscript):
                             if isinstance(node.value.value, ast.Name):
                                 target_name = node.value.value.id
@@ -114,7 +140,7 @@ def generate_stub(
 
             # Add indentation based on current indentation level (for regular and nested classes)
             indent = "    " * (self.indentation_level + 1)
-            
+
             # handle the case where the node.name is __init__, __init__ is a special case which always returns None
             if node.name == "__init__":
                 return_type = "None"
@@ -161,16 +187,44 @@ def generate_stub(
             previous_in_class = self.in_class
             self.in_class = True
             previous_indent = self.indentation_level
-            
+
             # Add indentation for nested classes
             if previous_in_class:
                 self.indentation_level += 1
-                
+
             class_name = node.name
             indent = "    " * self.indentation_level
             stub = ""
             case = self.special_cases(node)
-            
+
+            class_has_generic = False
+            generic_types = []
+            for base in node.bases:
+                if (
+                    isinstance(base, ast.Subscript)
+                    and isinstance(base.value, ast.Name)
+                    and base.value.id == "Generic"
+                ):
+                    class_has_generic = True
+                    if "typing" not in self.imports_helper_dict:
+                        self.imports_helper_dict["typing"] = set()
+                    self.imports_helper_dict["typing"].add("Generic")
+
+                    if isinstance(base.slice, ast.Tuple):
+                        for elt in base.slice.elts:
+                            if isinstance(elt, ast.Name):
+                                generic_types.append(elt.id)
+                    elif isinstance(base.slice, ast.Name):
+                        generic_types.append(base.slice.id)
+
+                    for type_name in generic_types:
+                        if type_name in self.typevars:
+                            continue
+                        self.typevars.add(type_name)
+                        if "typing" not in self.imports_helper_dict:
+                            self.imports_helper_dict["typing"] = set()
+                        self.imports_helper_dict["typing"].add("TypeVar")
+
             if case == "TypedDict":
                 stub = f"{indent}class {class_name}(TypedDict):\n"
                 if "typing" not in self.imports_helper_dict:
@@ -213,46 +267,64 @@ def generate_stub(
                 if is_dataclass:
                     stub = f"{indent}@dataclass\n"
                     self.imports_output.add("from dataclasses import dataclass")
-                stub += f"{indent}class {class_name}:"
+
+                class_def = f"{indent}class {class_name}"
+
+                bases = []
+                has_generic_base = False
+
+                for base in node.bases:
+                    if isinstance(base, ast.Name):
+                        bases.append(base.id)
+                    elif isinstance(base, ast.Subscript):
+                        if (
+                            isinstance(base.value, ast.Name)
+                            and base.value.id == "Generic"
+                        ):
+                            has_generic_base = True
+                            continue
+                        base_name = ast.unparse(base).strip()
+                        bases.append(base_name)
+
+                if class_has_generic:
+                    bases.append(f"Generic[{', '.join(generic_types)}]")
+
+                if bases:
+                    class_def += f"({', '.join(bases)})"
+
+                class_def += ":"
+                stub += class_def
 
             self.stubs.append(stub)
-            
-            # Handle methods and nested classes
-            methods_or_classes = [n for n in node.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))]
+
+            methods_or_classes = [
+                n for n in node.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))
+            ]
             if methods_or_classes:
-                # Add a newline to separate class body from its methods or nested classes
                 self.stubs.append("\n")
-                
-                # Process all child nodes
+
                 class_nodes = []
                 method_nodes = []
-                
-                # Separate class definitions from methods
+
                 for child in methods_or_classes:
                     if isinstance(child, ast.ClassDef):
                         class_nodes.append(child)
                     else:
                         method_nodes.append(child)
-                
-                # Visit nested classes first
+
                 for class_node in class_nodes:
                     self.visit(class_node)
-                
-                # Add a blank line after nested classes if there are methods in the outer class
+
                 if class_nodes and method_nodes:
-                    # Add a blank line between nested classes and methods
                     self.stubs.append("\n")
-                
-                # Visit methods
+
                 for method_node in method_nodes:
                     self.visit(method_node)
-            
-            # Restore previous state
+
             self.indentation_level = previous_indent
             self.in_class = previous_in_class
-            
-            # Add a newline after each class definition for consistent spacing
-            if not previous_in_class:  # Only for top-level classes
+
+            if not previous_in_class:
                 self.stubs.append("\n")
 
         def special_cases(self, node: ast.ClassDef) -> typing.Union[str, bool]:
@@ -281,7 +353,13 @@ def generate_stub(
                 return "Self" if arg_node.arg == "self" else arg_node.arg
             elif arg_node.annotation:
                 unparsed = ast.unparse(arg_node.annotation).strip()
-                # Check if the type is a fully qualified typing import
+
+                if (
+                    isinstance(arg_node.annotation, ast.Name)
+                    and arg_node.annotation.id in self.typevars
+                ):
+                    return arg_node.annotation.id
+
                 if unparsed.startswith("typing."):
                     type_name = unparsed.split(".")[-1]
                     if "typing" not in self.imports_helper_dict:
@@ -290,7 +368,6 @@ def generate_stub(
                     return type_name
                 return unparsed
             else:
-                # No annotation means Any type
                 if "typing" not in self.imports_helper_dict:
                     self.imports_helper_dict["typing"] = set()
                 self.imports_helper_dict["typing"].add("Any")
@@ -299,7 +376,13 @@ def generate_stub(
         def get_return_type(self, return_node: ast.AST) -> str:
             if return_node:
                 unparsed = ast.unparse(return_node).strip()
-                # Check if the type is a fully qualified typing import
+
+                if (
+                    isinstance(return_node, ast.Name)
+                    and return_node.id in self.typevars
+                ):
+                    return return_node.id
+
                 if unparsed.startswith("typing."):
                     type_name = unparsed.split(".")[-1]
                     if "typing" not in self.imports_helper_dict:
@@ -320,7 +403,6 @@ def generate_stub(
                 target_type = node.annotation.id
             else:
                 target_type = ast.unparse(node.annotation).strip()
-                # Check if the type is a fully qualified typing import
                 if target_type.startswith("typing."):
                     type_name = target_type.split(".")[-1]
                     if "typing" not in self.imports_helper_dict:
@@ -329,7 +411,7 @@ def generate_stub(
                     target_type = type_name
 
             indent = "    " * (self.indentation_level + 1)
-            
+
             if isinstance(node.annotation, ast.Subscript):
                 if isinstance(target, ast.Name):
                     stub = f"{indent}{target.id}: {target_type}\n"
