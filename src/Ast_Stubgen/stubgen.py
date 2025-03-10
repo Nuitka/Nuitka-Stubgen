@@ -13,9 +13,7 @@ def generate_stub(
     source_file_path: str,
     output_file_path: str,
     text_only: bool = False,
-    # ) -> str | None:
 ) -> typing.Union[str, None]:
-
     with open(source_file_path, "r", encoding="utf-8") as source_file:
         source_code = source_file.read()
     tree = ast.parse(source_code)
@@ -26,6 +24,7 @@ def generate_stub(
             self.imports_helper_dict: dict[str, set[str]] = {}
             self.imports_output: set[str] = set()
             self.typing_imports = typing.__all__
+            self.in_class = False
 
         def visit_Import(self, node: ast.Import) -> None:
             for alias in node.names:
@@ -41,12 +40,19 @@ def generate_stub(
                     self.imports_helper_dict[module].add(name)
 
         def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
-            if any(isinstance(n, ast.ClassDef) for n in ast.walk(tree)):
-                if self.is_method(node):
-                    self.visit_MethodDef(node)
-                else:
-                    self.visit_RegularFunctionDef(node)
+            if self.in_class:
+                self.visit_MethodDef(node)
             else:
+                for parent_node in ast.walk(tree):
+                    if isinstance(parent_node, ast.ClassDef):
+                        for child_node in parent_node.body:
+                            if (
+                                isinstance(child_node, ast.FunctionDef)
+                                and child_node.name == node.name
+                                and child_node.lineno == node.lineno
+                            ):
+                                # This is a method within a class
+                                return
                 self.visit_RegularFunctionDef(node)
 
         def visit_Assign(self, node: ast.Assign) -> None:
@@ -91,17 +97,6 @@ def generate_stub(
                     stub = f"{target_name}: {target_type}\n"
                     self.stubs.append(stub)
 
-        def is_method(self, node: ast.FunctionDef) -> bool:
-            for parent_node in ast.walk(tree):
-                if isinstance(parent_node, ast.ClassDef):
-                    for child_node in parent_node.body:
-                        if (
-                            isinstance(child_node, ast.FunctionDef)
-                            and child_node.name == node.name
-                        ):
-                            return True
-            return False
-
         def visit_MethodDef(self, node: ast.FunctionDef) -> None:
             args_list = []
             for arg in node.args.args:
@@ -116,14 +111,6 @@ def generate_stub(
                     self.imports_helper_dict["typing"] = set()
                 self.imports_helper_dict["typing"].add("Any")
 
-            # Check if Any is used in any argument types
-            if any("Any" == arg.split(":")[-1].strip() for arg in args_list):
-                if "typing" not in self.imports_helper_dict:
-                    self.imports_helper_dict["typing"] = set()
-                self.imports_helper_dict["typing"].add("Any")
-
-            if return_type in self.typing_imports:
-                self.imports_output.add(return_type)
             # handle the case where the node.name is __init__, __init__ is a special case which always returns None
             if node.name == "__init__":
                 return_type = "None"
@@ -163,19 +150,14 @@ def generate_stub(
                 if "typing" not in self.imports_helper_dict:
                     self.imports_helper_dict["typing"] = set()
                 self.imports_helper_dict["typing"].add("Any")
-                
-            # Check if Any is used in any argument types
-            if any("Any" == arg.split(":")[-1].strip() for arg in args_list):
-                if "typing" not in self.imports_helper_dict:
-                    self.imports_helper_dict["typing"] = set()
-                self.imports_helper_dict["typing"].add("Any")
-                
+
             stub = (
                 f"def {node.name}({', '.join(args_list)}) -> {return_type}:\n    ...\n"
             )
             self.stubs.append(stub)
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            self.in_class = True
             class_name = node.name
             stub = ""
             case = self.special_cases(node)
@@ -229,8 +211,8 @@ def generate_stub(
                 self.stubs.append("\n")
                 for method in methods:
                     self.visit_FunctionDef(method)
+            self.in_class = False
 
-        # def special_cases(self, node: ast.ClassDef) -> str | bool:
         def special_cases(self, node: ast.ClassDef) -> typing.Union[str, bool]:
             for obj in node.bases:
                 ob_instance = isinstance(obj, ast.Name)
@@ -248,10 +230,13 @@ def generate_stub(
         def get_arg_type(self, arg_node: ast.arg) -> str:
             selfs = ["self", "cls"]
             if arg_node.arg in selfs:
-                if "typing_extensions" not in self.imports_helper_dict:
+                if (
+                    arg_node.arg == "self"
+                    and "typing_extensions" not in self.imports_helper_dict
+                ):
                     self.imports_helper_dict["typing_extensions"] = set()
-                self.imports_helper_dict["typing_extensions"].add("Self")
-                return "Self"
+                    self.imports_helper_dict["typing_extensions"].add("Self")
+                return "Self" if arg_node.arg == "self" else arg_node.arg
             elif arg_node.annotation:
                 unparsed = ast.unparse(arg_node.annotation).strip()
                 # Check if the type is a fully qualified typing import
@@ -264,6 +249,9 @@ def generate_stub(
                 return unparsed
             else:
                 # No annotation means Any type
+                if "typing" not in self.imports_helper_dict:
+                    self.imports_helper_dict["typing"] = set()
+                self.imports_helper_dict["typing"].add("Any")
                 return "Any"
 
         def get_return_type(self, return_node: ast.AST) -> str:
@@ -279,6 +267,9 @@ def generate_stub(
                 return unparsed
             else:
                 # No annotation means Any type
+                if "typing" not in self.imports_helper_dict:
+                    self.imports_helper_dict["typing"] = set()
+                self.imports_helper_dict["typing"].add("Any")
                 return "Any"
 
         def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
@@ -307,6 +298,18 @@ def generate_stub(
                     if isinstance(target.value, ast.Name):
                         target_name = target.value.id
                     stub = f"{target_name}: {target_type}\n"
+            elif isinstance(node.annotation, ast.BinOp):
+                # Handle binary operations like Union types (int | str)
+                if isinstance(target, ast.Name):
+                    stub = f"{target.id}: {target_type}\n"
+                elif isinstance(target, ast.Subscript):
+                    if isinstance(target.value, ast.Name):
+                        target_name = target.value.id
+                        stub = f"{target_name}: {target_type}\n"
+                    else:
+                        stub = f"{ast.unparse(target)}: {target_type}\n"
+                else:
+                    stub = f"{ast.unparse(target)}: {target_type}\n"
             else:
                 raise NotImplementedError(
                     f"Type {type(node.annotation)} not implemented, report this issue"
@@ -315,35 +318,36 @@ def generate_stub(
             self.stubs.append(stub)
 
         def generate_imports(self) -> str:
-            imports_helper = set()
+            imports = []
+            imports.append("from __future__ import annotations\n")
+
             sorted_items = sorted(self.imports_helper_dict.items())
             for module, names in sorted_items:
-                imports_helper.add(f"from {module} import {', '.join(sorted(names))}")
+                if names:
+                    imports.append(f"from {module} import {', '.join(sorted(names))}\n")
 
-            imports_helper.update(self.imports_output)
+            for imp in sorted(self.imports_output):
+                if imp != "from __future__ import annotations":
+                    imports.append(f"{imp}\n")
 
-            self.imports_output.add("from __future__ import annotations")
-
-            imports = "".join([f"{imp}\n" for imp in imports_helper])
-
-            return imports + "\n"
+            return "".join(imports) + "\n" if imports else ""
 
     stub_generator = StubGenerator()
     stub_generator.visit(tree)
     out_str = ""
-    sempt = stub_generator.generate_imports()
-    if sempt:
-        out_str += sempt
+
+    imports_str = stub_generator.generate_imports()
+    if imports_str:
+        out_str += imports_str
+
     for stub in stub_generator.stubs:
         out_str += stub
 
     if text_only:
         return out_str
     else:
-
         with open(output_file_path, "w") as output_file:
             output_file.write(out_str)
-
         return None
 
 
