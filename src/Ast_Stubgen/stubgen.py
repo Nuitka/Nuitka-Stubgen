@@ -25,6 +25,7 @@ def generate_stub(
             self.imports_output: set[str] = set()
             self.typing_imports = typing.__all__
             self.in_class = False
+            self.indentation_level = 0
 
         def visit_Import(self, node: ast.Import) -> None:
             for alias in node.names:
@@ -111,6 +112,9 @@ def generate_stub(
                     self.imports_helper_dict["typing"] = set()
                 self.imports_helper_dict["typing"].add("Any")
 
+            # Add indentation based on current indentation level (for regular and nested classes)
+            indent = "    " * (self.indentation_level + 1)
+            
             # handle the case where the node.name is __init__, __init__ is a special case which always returns None
             if node.name == "__init__":
                 return_type = "None"
@@ -119,22 +123,18 @@ def generate_stub(
                     if isinstance(decorator, ast.Name):
                         if decorator.id == "classmethod":
                             args_list = args_list[1:]
-                            stub = f"    @classmethod\n    def {node.name}(cls, {', '.join(args_list)}) -> {return_type}: ...\n"
-
+                            stub = f"{indent}@classmethod\n{indent}def {node.name}(cls, {', '.join(args_list)}) -> {return_type}: ...\n"
                             self.stubs.append(stub)
                             return
-
                         elif decorator.id == "staticmethod":
-                            stub = f"    @staticmethod\n    def {node.name}({', '.join(args_list)}) -> {return_type}: ...\n"
+                            stub = f"{indent}@staticmethod\n{indent}def {node.name}({', '.join(args_list)}) -> {return_type}: ...\n"
                             self.stubs.append(stub)
                             return
                         else:
-                            stub = f"    def {node.name}({', '.join(args_list)}) -> {return_type}: ...\n"
+                            stub = f"{indent}def {node.name}({', '.join(args_list)}) -> {return_type}: ...\n"
                             self.stubs.append(stub)
                             return
-            stub = (
-                f"    def {node.name}({', '.join(args_list)}) -> {return_type}: ...\n"
-            )
+            stub = f"{indent}def {node.name}({', '.join(args_list)}) -> {return_type}: ...\n"
             self.stubs.append(stub)
 
         def visit_RegularFunctionDef(self, node: ast.FunctionDef) -> None:
@@ -155,14 +155,24 @@ def generate_stub(
                 f"def {node.name}({', '.join(args_list)}) -> {return_type}:\n    ...\n"
             )
             self.stubs.append(stub)
+            self.stubs.append("\n")
 
         def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            previous_in_class = self.in_class
             self.in_class = True
+            previous_indent = self.indentation_level
+            
+            # Add indentation for nested classes
+            if previous_in_class:
+                self.indentation_level += 1
+                
             class_name = node.name
+            indent = "    " * self.indentation_level
             stub = ""
             case = self.special_cases(node)
+            
             if case == "TypedDict":
-                stub = f"class {class_name}(TypedDict):\n"
+                stub = f"{indent}class {class_name}(TypedDict):\n"
                 if "typing" not in self.imports_helper_dict:
                     self.imports_helper_dict["typing"] = set()
                 self.imports_helper_dict["typing"].add("TypedDict")
@@ -172,46 +182,78 @@ def generate_stub(
                             if isinstance(target, ast.Name):
                                 target_name = target.id
                                 target_type = ast.unparse(key.value).strip()
-                                stub += f"    {target_name}: {target_type}\n"
+                                stub += f"{indent}    {target_name}: {target_type}\n"
                             elif isinstance(target, ast.Subscript):
                                 if isinstance(target.value, ast.Name):
                                     target_name = target.value.id
                                 target_type = ast.unparse(key.value).strip()
-                                stub += f"    {target_name}: {target_type}\n"
+                                stub += f"{indent}    {target_name}: {target_type}\n"
                     elif isinstance(key, ast.AnnAssign):
                         target = key.target
                         if isinstance(target, ast.Name):
                             target_name = target.id
                             target_type = ast.unparse(key.annotation).strip()
-                            stub += f"    {target_name}: {target_type}\n"
+                            stub += f"{indent}    {target_name}: {target_type}\n"
                         elif isinstance(target, ast.Subscript):
                             if isinstance(target.value, ast.Name):
                                 target_name = target.value.id
                             target_type = ast.unparse(key.annotation).strip()
-                            stub += f"    {target_name}: {target_type}\n"
-                stub += "\n"
+                            stub += f"{indent}    {target_name}: {target_type}\n"
+                # No extra newline needed here
             elif case == "Exception":
                 if not any(isinstance(n, ast.FunctionDef) for n in node.body):
-                    stub = f"\nclass {class_name}(Exception): ..."
+                    stub = f"{indent}class {class_name}(Exception): ..."
                 else:
-                    stub = f"\nclass {class_name}(Exception):"
+                    stub = f"{indent}class {class_name}(Exception):"
             elif case == "NamedTuple":
-                stub = f"class {class_name}(NamedTuple):\n"
+                stub = f"{indent}class {class_name}(NamedTuple):\n"
                 self.imports_output.add("from typing import NamedTuple")
             else:
                 is_dataclass = any(isinstance(n, ast.AnnAssign) for n in node.body)
                 if is_dataclass:
-                    stub = "@dataclass\n"
+                    stub = f"{indent}@dataclass\n"
                     self.imports_output.add("from dataclasses import dataclass")
-                stub += f"class {class_name}:"
+                stub += f"{indent}class {class_name}:"
 
             self.stubs.append(stub)
-            methods = [n for n in node.body if isinstance(n, ast.FunctionDef)]
-            if methods:
+            
+            # Handle methods and nested classes
+            methods_or_classes = [n for n in node.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))]
+            if methods_or_classes:
+                # Add a newline to separate class body from its methods or nested classes
                 self.stubs.append("\n")
-                for method in methods:
-                    self.visit_FunctionDef(method)
-            self.in_class = False
+                
+                # Process all child nodes
+                class_nodes = []
+                method_nodes = []
+                
+                # Separate class definitions from methods
+                for child in methods_or_classes:
+                    if isinstance(child, ast.ClassDef):
+                        class_nodes.append(child)
+                    else:
+                        method_nodes.append(child)
+                
+                # Visit nested classes first
+                for class_node in class_nodes:
+                    self.visit(class_node)
+                
+                # Add a blank line after nested classes if there are methods in the outer class
+                if class_nodes and method_nodes:
+                    # Add a blank line between nested classes and methods
+                    self.stubs.append("\n")
+                
+                # Visit methods
+                for method_node in method_nodes:
+                    self.visit(method_node)
+            
+            # Restore previous state
+            self.indentation_level = previous_indent
+            self.in_class = previous_in_class
+            
+            # Add a newline after each class definition for consistent spacing
+            if not previous_in_class:  # Only for top-level classes
+                self.stubs.append("\n")
 
         def special_cases(self, node: ast.ClassDef) -> typing.Union[str, bool]:
             for obj in node.bases:
@@ -286,30 +328,32 @@ def generate_stub(
                     self.imports_helper_dict["typing"].add(type_name)
                     target_type = type_name
 
+            indent = "    " * (self.indentation_level + 1)
+            
             if isinstance(node.annotation, ast.Subscript):
                 if isinstance(target, ast.Name):
-                    stub = f"{target.id}: {target_type}\n"
+                    stub = f"{indent}{target.id}: {target_type}\n"
                 elif isinstance(target, ast.Name):
-                    stub = f"{target.id}: {target_type}\n"
+                    stub = f"{indent}{target.id}: {target_type}\n"
             elif isinstance(node.annotation, ast.Name):
                 if isinstance(target, ast.Name):
-                    stub = f"{target.id}: {target_type}\n"
+                    stub = f"{indent}{target.id}: {target_type}\n"
                 elif isinstance(target, ast.Subscript):
                     if isinstance(target.value, ast.Name):
                         target_name = target.value.id
-                    stub = f"{target_name}: {target_type}\n"
+                    stub = f"{indent}{target_name}: {target_type}\n"
             elif isinstance(node.annotation, ast.BinOp):
                 # Handle binary operations like Union types (int | str)
                 if isinstance(target, ast.Name):
-                    stub = f"{target.id}: {target_type}\n"
+                    stub = f"{indent}{target.id}: {target_type}\n"
                 elif isinstance(target, ast.Subscript):
                     if isinstance(target.value, ast.Name):
                         target_name = target.value.id
-                        stub = f"{target_name}: {target_type}\n"
+                        stub = f"{indent}{target_name}: {target_type}\n"
                     else:
-                        stub = f"{ast.unparse(target)}: {target_type}\n"
+                        stub = f"{indent}{ast.unparse(target)}: {target_type}\n"
                 else:
-                    stub = f"{ast.unparse(target)}: {target_type}\n"
+                    stub = f"{indent}{ast.unparse(target)}: {target_type}\n"
             else:
                 raise NotImplementedError(
                     f"Type {type(node.annotation)} not implemented, report this issue"
