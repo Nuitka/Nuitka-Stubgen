@@ -9,6 +9,33 @@ if sys.version_info < (3, 9):
     ast.unparse = unparse
 
 
+class MainBlockRemover(ast.NodeTransformer):
+    """AST transformer that removes 'if __name__ == "__main__":' blocks."""
+
+    def visit_If(self, node: ast.If) -> typing.Optional[ast.AST]:
+        if (
+            isinstance(node.test, ast.Compare)
+            and isinstance(node.test.left, ast.Name)
+            and node.test.left.id == "__name__"
+            and len(node.test.ops) == 1
+            and isinstance(node.test.ops[0], ast.Eq)
+            and len(node.test.comparators) == 1
+            and isinstance(node.test.comparators[0], ast.Constant)
+            and node.test.comparators[0].value == "__main__"
+        ):
+            return None
+
+        return self.generic_visit(node)
+
+
+def preprocess_source(source_code: str) -> str:
+    tree = ast.parse(source_code)
+    transformer = MainBlockRemover()
+    transformed_tree = transformer.visit(tree)
+    ast.fix_missing_locations(transformed_tree)
+    return ast.unparse(transformed_tree)
+
+
 def generate_stub(
     source_file_path: str,
     output_file_path: str,
@@ -16,7 +43,9 @@ def generate_stub(
 ) -> typing.Union[str, None]:
     with open(source_file_path, "r", encoding="utf-8") as source_file:
         source_code = source_file.read()
-    tree = ast.parse(source_code)
+
+    preprocessed_code = preprocess_source(source_code)
+    tree = ast.parse(preprocessed_code)
 
     class StubGenerator(ast.NodeVisitor):
         def __init__(self) -> None:
@@ -105,7 +134,7 @@ def generate_stub(
                                     self.typevars.add(target_name)
                         elif isinstance(node.value, ast.Subscript):
                             if isinstance(node.value.value, ast.Name):
-                                target_name = node.value.value.id
+                                target_name = target.id
                             target_type = ast.unparse(node.value).strip()
                             if "typing_extensions" not in self.imports_helper_dict:
                                 self.imports_helper_dict["typing_extensions"] = set()
@@ -113,6 +142,10 @@ def generate_stub(
                                 "TypeAlias"
                             )
                             stub = f"{target_name}: TypeAlias = {target_type}\n"
+                            self.stubs.append(stub)
+                        # Handle module-level variables with an initialization value
+                        elif not self.in_class:
+                            stub = f"{target_name} = {target_type}\n"
                             self.stubs.append(stub)
 
                 elif isinstance(target, ast.Subscript):
@@ -253,7 +286,6 @@ def generate_stub(
                                 target_name = target.value.id
                             target_type = ast.unparse(key.annotation).strip()
                             stub += f"{indent}    {target_name}: {target_type}\n"
-                # No extra newline needed here
             elif case == "Exception":
                 if not any(isinstance(n, ast.FunctionDef) for n in node.body):
                     stub = f"{indent}class {class_name}(Exception): ..."
@@ -271,7 +303,6 @@ def generate_stub(
                 class_def = f"{indent}class {class_name}"
 
                 bases = []
-                has_generic_base = False
 
                 for base in node.bases:
                     if isinstance(base, ast.Name):
@@ -281,7 +312,6 @@ def generate_stub(
                             isinstance(base.value, ast.Name)
                             and base.value.id == "Generic"
                         ):
-                            has_generic_base = True
                             continue
                         base_name = ast.unparse(base).strip()
                         bases.append(base_name)
@@ -410,38 +440,52 @@ def generate_stub(
                     self.imports_helper_dict["typing"].add(type_name)
                     target_type = type_name
 
-            indent = "    " * (self.indentation_level + 1)
+            if not self.in_class:
+                if isinstance(target, ast.Name):
+                    target_name = target.id
+                    if node.value is not None:
+                        value_str = ast.unparse(node.value).strip()
+                        stub = f"{target_name}: {target_type} = {value_str}\n"
+                    else:
+                        stub = f"{target_name}: {target_type}\n"
+                    self.stubs.append(stub)
+                    return
 
-            if isinstance(node.annotation, ast.Subscript):
-                if isinstance(target, ast.Name):
-                    stub = f"{indent}{target.id}: {target_type}\n"
-                elif isinstance(target, ast.Name):
-                    stub = f"{indent}{target.id}: {target_type}\n"
-            elif isinstance(node.annotation, ast.Name):
-                if isinstance(target, ast.Name):
-                    stub = f"{indent}{target.id}: {target_type}\n"
-                elif isinstance(target, ast.Subscript):
-                    if isinstance(target.value, ast.Name):
-                        target_name = target.value.id
-                    stub = f"{indent}{target_name}: {target_type}\n"
-            elif isinstance(node.annotation, ast.BinOp):
-                # Handle binary operations like Union types (int | str)
-                if isinstance(target, ast.Name):
-                    stub = f"{indent}{target.id}: {target_type}\n"
-                elif isinstance(target, ast.Subscript):
-                    if isinstance(target.value, ast.Name):
-                        target_name = target.value.id
+            if self.in_class:
+                indent = "    " * (self.indentation_level + 1)
+
+                if isinstance(node.annotation, ast.Subscript):
+                    if isinstance(target, ast.Name):
+                        stub = f"{indent}{target.id}: {target_type}\n"
+                    elif isinstance(target, ast.Subscript):
+                        if isinstance(target.value, ast.Name):
+                            target_name = target.value.id
                         stub = f"{indent}{target_name}: {target_type}\n"
+                elif isinstance(node.annotation, ast.Name):
+                    if isinstance(target, ast.Name):
+                        stub = f"{indent}{target.id}: {target_type}\n"
+                    elif isinstance(target, ast.Subscript):
+                        if isinstance(target.value, ast.Name):
+                            target_name = target.value.id
+                        stub = f"{indent}{target_name}: {target_type}\n"
+                elif isinstance(node.annotation, ast.BinOp):
+                    # Handle binary operations like Union types (int | str)
+                    if isinstance(target, ast.Name):
+                        stub = f"{indent}{target.id}: {target_type}\n"
+                    elif isinstance(target, ast.Subscript):
+                        if isinstance(target.value, ast.Name):
+                            target_name = target.value.id
+                            stub = f"{indent}{target_name}: {target_type}\n"
+                        else:
+                            stub = f"{indent}{ast.unparse(target)}: {target_type}\n"
                     else:
                         stub = f"{indent}{ast.unparse(target)}: {target_type}\n"
                 else:
-                    stub = f"{indent}{ast.unparse(target)}: {target_type}\n"
-            else:
-                raise NotImplementedError(
-                    f"Type {type(node.annotation)} not implemented, report this issue"
-                )
+                    raise NotImplementedError(
+                        f"Type {type(node.annotation)} not implemented, report this issue"
+                    )
 
-            self.stubs.append(stub)
+                self.stubs.append(stub)
 
         def generate_imports(self) -> str:
             imports = []
