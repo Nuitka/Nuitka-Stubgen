@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose support for a Python construct or workflow
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for new stub-generation behavior, CLI workflows, or vendoring improvements.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What should `nuitka-stubgen` support?
+    validations:
+      required: true
+  - type: textarea
+    id: example-input
+    attributes:
+      label: Example Input
+      description: Source pattern or workflow this feature should handle.
+      render: python
+    validations:
+      required: false
+  - type: textarea
+    id: desired-output
+    attributes:
+      label: Desired Output
+      description: Desired `.pyi` output or CLI behavior.
+      render: python
+    validations:
+      required: false
+  - type: textarea
+    id: why-it-matters
+    attributes:
+      label: Why It Matters
+      description: Explain the downstream package, Nuitka use case, or contributor workflow this helps.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Known limitations, alternatives, or related tools.
+    validations:
+      required: false

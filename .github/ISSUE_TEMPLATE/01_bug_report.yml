@@ -1,0 +1,67 @@
+name: Bug report
+description: Report incorrect stub generation or tool behavior
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please include a minimal source sample whenever possible.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Reproducer
+      description: Minimal Python source input that reproduces the issue.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected-stub
+    attributes:
+      label: Expected Stub
+      description: Expected `.pyi` output, if known.
+      render: python
+    validations:
+      required: false
+  - type: textarea
+    id: actual-stub
+    attributes:
+      label: Actual Stub or Error
+      description: Actual `.pyi` output or traceback.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      value: |
+        - Python version:
+        - `nuitka-stubgen` version or commit:
+        - Operating system:
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Any related context, workaround, or dynamic behavior involved.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission Checks
+      options:
+        - label: I searched for an existing issue before opening this one.
+          required: true
+        - label: This is not a security vulnerability report.
+          required: true
