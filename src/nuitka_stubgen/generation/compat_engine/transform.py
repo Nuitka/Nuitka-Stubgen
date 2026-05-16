@@ -1,0 +1,168 @@
+import ast
+from importlib import resources
+from pathlib import Path
+from typing import Optional
+
+PREAMBLE = """\
+import ast
+import os
+import sys
+import typing
+
+# Ensure our vendored runtime (astunparse, etc) is available
+_runtime_dir = os.path.dirname(os.path.abspath(__file__))
+if _runtime_dir not in sys.path:
+    sys.path.insert(0, _runtime_dir)
+
+if sys.version_info < (3, 9):
+    try:
+        from .astunparse import unparse
+    except (ImportError, SystemError, ValueError):
+        import astunparse
+        unparse = astunparse.unparse
+    ast.unparse = unparse
+
+"""
+
+RUNTIME_FILES = ("astunparse.py", "six.py", "astunparse_LICENSE.txt")
+
+
+class AnnotationStripper(ast.NodeTransformer):
+    """Remove all type annotations from function signatures and assignments."""
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
+        for arg in getattr(node.args, "posonlyargs", []) + node.args.args + node.args.kwonlyargs:
+            arg.annotation = None
+        if node.args.vararg:
+            node.args.vararg.annotation = None
+        if node.args.kwarg:
+            node.args.kwarg.annotation = None
+        node.returns = None
+        return self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
+        for arg in getattr(node.args, "posonlyargs", []) + node.args.args + node.args.kwonlyargs:
+            arg.annotation = None
+        if node.args.vararg:
+            node.args.vararg.annotation = None
+        if node.args.kwarg:
+            node.args.kwarg.annotation = None
+        node.returns = None
+        return self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> Optional[ast.AST]:
+        if node.value is not None:
+            new_node = ast.Assign(
+                targets=[node.target],
+                value=node.value,
+                lineno=node.lineno,
+                col_offset=node.col_offset,
+            )
+            ast.fix_missing_locations(new_node)
+            return new_node
+        return None  # bare `x: T` with no value — drop it
+
+
+class FStringConverter(ast.NodeTransformer):
+    """Convert f-strings (ast.JoinedStr) to %-style formatting."""
+
+    def visit_JoinedStr(self, node: ast.JoinedStr) -> ast.AST:
+        self.generic_visit(node)
+
+        format_parts: list[str] = []
+        value_nodes: list[ast.expr] = []
+
+        for part in node.values:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                format_parts.append(part.value.replace("%", "%%"))
+            elif isinstance(part, ast.FormattedValue):
+                format_parts.append("%s")
+                value_nodes.append(part.value)
+            elif hasattr(ast, "Str") and isinstance(part, getattr(ast, "Str", ())):  # Python < 3.8
+                s = getattr(part, "s", "")
+                if isinstance(s, str):
+                    format_parts.append(s.replace("%", "%%"))
+
+        fmt = ast.Constant(value="".join(format_parts))
+
+        if not value_nodes:
+            return fmt
+
+        rhs: ast.expr = value_nodes[0] if len(value_nodes) == 1 else ast.Tuple(elts=value_nodes, ctx=ast.Load())
+
+        result = ast.BinOp(left=fmt, op=ast.Mod(), right=rhs)
+        ast.fix_missing_locations(result)
+        return result
+
+
+class ImportFilter(ast.NodeTransformer):
+    """Drop __future__ imports and relative imports between our own modules."""
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> Optional[ast.AST]:
+        if node.module == "__future__":
+            return None
+        # Remove imports from our own constants as they are merged
+        if node.module in (".constants", "..constants", "constants"):
+            return None
+        if node.level and node.level > 0:
+            return None
+        return node
+
+
+class MainBlockRemover(ast.NodeTransformer):
+    """Remove 'if __name__ == "__main__":' blocks."""
+
+    def visit_If(self, node: ast.If) -> Optional[ast.AST]:
+        # We use a loose check similar to core.is_main_guard but for removal
+        from .core import is_main_guard
+
+        if is_main_guard(node.test):
+            return None
+        return self.generic_visit(node)
+
+
+def transform_source(source: str) -> str:
+    """Parse source, apply all transformers, return the transformed code for vendoring."""
+    tree = ast.parse(source)
+    for transformer in (ImportFilter(), AnnotationStripper(), FStringConverter(), MainBlockRemover()):
+        tree = transformer.visit(tree)
+    ast.fix_missing_locations(tree)
+    return ast.unparse(tree)
+
+
+def write_nuitka_compat(generation_dir: Path, output_path: Path) -> None:
+    """Transform and combine compatibility modules, then write the vendorable file."""
+    output_path.mkdir(parents=True, exist_ok=True)
+    target_file = output_path / "stubgen.py"
+
+    # Include shared constants and core compatibility logic
+    combined_source_code = ""
+    for rel_path in ["constants.py", "compat_engine/core.py"]:
+        combined_source_code += (generation_dir / rel_path).read_text(encoding="utf-8") + "\n"
+
+    transformed_src = transform_source(combined_source_code)
+
+    target_file.write_text(
+        "# --- auto-generated by nuitka-stubgen-vendor; do not edit ---\n" + PREAMBLE + transformed_src + "\n",
+        encoding="utf-8",
+    )
+    # Write __init__.py to make it a package and export main functions
+    (output_path / "__init__.py").write_text(
+        "from .stubgen import generate_stub, generate_stub_from_source, write_stub\n\n"
+        "__all__ = ['generate_stub', 'generate_stub_from_source', 'write_stub']\n",
+        encoding="utf-8",
+    )
+
+    write_runtime_files(output_path)
+
+
+def write_runtime_files(output_dir: Path) -> None:
+    try:
+        runtime_root = resources.files("nuitka_stubgen.generation.compat_engine.vendor_runtime")
+        for filename in RUNTIME_FILES:
+            (output_dir / filename).write_bytes((runtime_root / filename).read_bytes())
+    except (ImportError, TypeError):
+        # Fallback to direct path calculation if package import fails
+        runtime_root = Path(__file__).parent / "vendor_runtime"
+        for filename in RUNTIME_FILES:
+            (output_dir / filename).write_bytes((runtime_root / filename).read_bytes())
