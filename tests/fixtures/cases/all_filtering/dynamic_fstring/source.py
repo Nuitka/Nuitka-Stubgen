@@ -1,0 +1,6 @@
+name = "bar"
+__all__ = [f"{name}"]
+
+
+def foo() -> None: ...
+def bar() -> None: ...

@@ -1,0 +1,13 @@
+from __future__ import annotations
+from typing import Any, Optional
+
+
+def complex_func(a: int, b: str, c: Optional[int] = ...) -> bool: ...
+
+
+class Database:
+    connection: Any = ...
+
+    def __init__(self, host: str, port: int) -> None: ...
+
+    async def query(self, sql: str, params: tuple = ...) -> list: ...
