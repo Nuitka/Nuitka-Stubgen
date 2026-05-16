@@ -1,15 +1,166 @@
 [project]
-name = "AST_Stubgen"
-version = "0.1.6"
-description = "Generate Python type stubs from your code using the built in AST parser."
-authors = [{ name = "KRRT7", email = "turcioskevinr@gmail.com" }]
-license = { text = "MIT" }
-readme = "README.md"
-requires-python = ">=3.6"
+name = "nuitka-stubgen"
+version = "0.1.0"
+license = "MIT"
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = ["libcst>=1.8.6"]
 
 [project.urls]
-repository = "https://github.com/KRRT7/AST_Stubgen"
+Homepage = "https://github.com/Nuitka/Nuitka-Stubgen"
+Repository = "https://github.com/Nuitka/Nuitka-Stubgen"
+Issues = "https://github.com/Nuitka/Nuitka-Stubgen/issues"
+
+[project.scripts]
+nuitka-stubgen = "nuitka_stubgen.cli:main"
+nuitka-stubgen-vendor = "nuitka_stubgen.vendor:main"
 
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.7.2,<0.8"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "attrs>=26.1.0",
+    "click>=8.1.8",
+    "prek>=0.4.0",
+    "pytest>=7.0",
+    "rich>=15.0.0",
+    "ruff>=0.9.0",
+    "ty>=0.0.37",
+]
+
+[tool.ruff]
+src = ["src"]
+line-length = 120
+target-version = "py39"
+extend-exclude = [
+    "src/nuitka_stubgen/generation/compat_engine/vendor_runtime",
+    "tests/fixtures/cases/**",
+]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "D203",    # incompatible with D211
+    "D213",    # incompatible with D212
+    "COM812",  # conflicts with ruff formatter
+    "D100",
+    "D101",
+    "D102",
+    "D103",
+    "D107",
+    "E501",    # line length handled by formatter
+    "T201",    # print in CLI tools is fine
+    "ANN401",  # Any is acceptable
+    "ANN001",
+    "ANN002",
+    "ANN003",
+    "ANN201",
+    "ANN202",
+    "TID252",  # relative imports are the convention
+    "SLF001",  # private member access is fine internally
+    "UP007",   # Union syntax — keep for Python 3.9 compat
+    "UP035",   # typing imports — keep for Python 3.9 compat
+    "FBT001",
+    "FBT002",
+    "FBT003",  # bool args match the established public API
+    "EM101",
+    "TRY003",  # short exception messages are fine here
+    "C901",
+    "PLR0911",
+    "PLR0912",
+    "PLR0915", # ast visitor methods are inherently complex
+    "N815",    # visit_AsyncFunctionDef alias follows ast.NodeVisitor convention
+    "PERF401", # list-append loops are clearer for building arg strings
+    "D104",    # public package docstring not required
+    "D205",
+    "D400",
+    "D401",
+    "D415",    # docstring style — not enforced
+    "N802",    # LibCST/AST visitor hooks must use mixed-case names (visit_Foo, leave_Foo)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S",
+    "D",
+    "ANN",
+    "PLR2004",
+    "ARG",
+    "PT",
+    "TC",
+    "PLW0108",
+    "UP031",
+    "BLE001",
+    "E721",
+    "PLC0415",
+    "E402",
+    "INP001",
+    "SIM105",
+    "F401",
+    "PYI002",
+    "TRY301",
+    "RUF100",
+]
+"tests/run_vendor_py35.py" = ["PTH"]  # must stay Python 3.5 compatible; no pathlib operator syntax
+"src/nuitka_stubgen/generation/transform.py" = [
+    "ARG002",
+] # LibCST visitor hooks require original_node/node params
+"src/nuitka_stubgen/generation/compat_engine/**" = [
+    "ARG002",
+    "PTH123",
+    "RUF005",
+    "SIM102",
+    "SIM108",
+    "UP015",
+    "UP031",
+    "UP037",
+    "UP045",
+    "BLE001",
+    "PLW2901",
+    "F841",
+    "PLC0415",
+    "PIE810",
+    "SIM110",
+    "UP036",
+    "S110",
+    "ARG001",
+    "FA100",
+]
+
+[tool.ty.environment]
+python-version = "3.9"
+
+[tool.ty.src]
+include = ["src", "tests"]
+exclude = [
+    "tests/fixtures/cases",
+    "src/nuitka_stubgen/generation/compat_engine/vendor_runtime"
+]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-markers", "--strict-config", "--import-mode=importlib"]
+markers = ["corpus: broad installed-package stub generation checks"]
+testpaths = ["tests"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version_provider = "uv"
+version_scheme = "pep440"
+tag_format = "v$version"
+major_version_zero = true
