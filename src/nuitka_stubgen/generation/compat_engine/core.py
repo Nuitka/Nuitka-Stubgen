@@ -13,6 +13,25 @@ AST_ANN_ASSIGN = getattr(ast, "AnnAssign", ())
 AST_ASYNC_FUNCTION_DEF = getattr(ast, "AsyncFunctionDef", ())
 
 
+def _unparse(node: ast.AST) -> str:
+    """Unparse an AST node across Python versions.
+
+    Prefer `ast.unparse` when available (Python 3.9+); otherwise fall back to
+    the vendored `astunparse` runtime shipped next to the generated file.
+    """
+
+    unparse = getattr(ast, "unparse", None)
+    if unparse is not None:
+        return unparse(node)
+
+    try:
+        import astunparse  # type: ignore
+
+        return astunparse.unparse(node)
+    except Exception:
+        return ""
+
+
 class Source:
     def __init__(self, text: str) -> None:
         self.text = text
@@ -796,7 +815,7 @@ class StubRenderer:
 
         # 3. Last resort: ast.unparse
         try:
-            return ast.unparse(node).strip()
+            return _unparse(node).strip()
         except (AttributeError, Exception):
             # Very basic fallback for old ast without unparse
             if isinstance(node, ast.Name):
