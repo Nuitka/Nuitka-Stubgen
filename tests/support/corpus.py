@@ -26,7 +26,18 @@ IGNORED_DIRS = {
     "build",
     "dist",
 }
-DEFAULT_PACKAGE_CORPUS = ("pytest", "packaging", "click", "attrs", "rich", "pluggy", "PyYAML", "libcst")
+DEFAULT_PACKAGE_CORPUS = (
+    "pytest",
+    "packaging",
+    "click",
+    "attrs",
+    "rich",
+    "pluggy",
+    "PyYAML",
+    "pyyaml-ft",
+    "tomli",
+    "libcst",
+)
 PACKAGE_ENV = "NUITKA_STUBGEN_CORPUS_PACKAGES"
 
 
