@@ -1,0 +1,30 @@
+# Nuitka-Stubgen rules
+
+These rules apply when working in the Nuitka-Stubgen project
+
+## Goals
+
+- Preserve **deterministic output**: avoid non-determinism from iteration order, locale, timestamps, random seeds, or filesystem ordering.
+- Preserve **compatibility** expectations:
+  - Project runtime is Python **3.9+** (`target-version = py39`).
+  - The vendored compatibility bundle must remain **Python 3.5-parseable** where applicable (see `stubgen/` / compat-engine code).
+- Keep changes minimal and surgical; do not refactor for style unless necessary for correctness.
+
+## Coding standards
+
+- Formatting/linting: follow Ruff configuration in `pyproject.toml`.
+  - Prefer `uv run ruff format` and `uv run ruff check` after edits.
+- Types: keep typing compatible with Python 3.9 (no PEP 604 `X | Y`, no `list[str]` unless already established in that module’s style/config).
+- Errors:
+  - Raise specific exceptions; avoid bare `except:` and avoid swallowing exceptions unless explicitly intentional for stub generation resilience.
+  - When adding errors for user-facing CLI paths, make messages short and actionable.
+- I/O:
+  - Use UTF-8 explicitly when reading/writing source/stub text.
+  - When walking directories, sort paths to keep output stable.
+
+## Tests / verification
+
+- Prefer the project’s toolchain:
+  - `uv run pytest`
+  - `uv run ty`
+- If changing stub output, add/adjust a focused test under `tests/` that asserts stable output (exact text or normalized snapshot-style comparison).
