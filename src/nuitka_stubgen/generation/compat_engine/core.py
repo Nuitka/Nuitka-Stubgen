@@ -19,13 +19,12 @@ def _unparse(node: ast.AST) -> str:
     Prefer `ast.unparse` when available (Python 3.9+); otherwise fall back to
     the vendored `astunparse` runtime shipped next to the generated file.
     """
-
     unparse = getattr(ast, "unparse", None)
     if unparse is not None:
         return unparse(node)
 
     try:
-        import astunparse  # type: ignore
+        import astunparse  # type: ignore[import-not-found]
 
         return astunparse.unparse(node)
     except Exception:

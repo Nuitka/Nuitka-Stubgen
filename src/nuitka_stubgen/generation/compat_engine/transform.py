@@ -1,7 +1,7 @@
 import ast
 from importlib import resources
 from pathlib import Path
-from typing import Optional
+from typing import ClassVar, Optional
 
 PREAMBLE = """\
 \"\"\"Vendored stub generator for Nuitka.
@@ -142,9 +142,9 @@ class ModuleDocstringRemover(ast.NodeTransformer):
 class VendoredImportDeduper(ast.NodeTransformer):
     """Remove imports already provided by PREAMBLE."""
 
-    _DROP_IMPORTS = {"ast", "os", "sys", "typing"}
+    _DROP_IMPORTS: ClassVar[frozenset[str]] = frozenset({"ast", "os", "sys", "typing"})
 
-    def visit_Import(self, node: ast.Import) -> ast.AST | None:
+    def visit_Import(self, node: ast.Import) -> Optional[ast.AST]:
         filtered = []
         for alias in node.names:
             if alias.asname is None and alias.name in self._DROP_IMPORTS:
