@@ -27,7 +27,7 @@ jobs:
           - "3.13"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -56,7 +56,7 @@ jobs:
     name: Generate Stub & E2E Integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up uv and Python
         uses: astral-sh/setup-uv@v5
@@ -80,7 +80,7 @@ jobs:
           path: vendored_output/
 
       - name: Checkout Nuitka
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: Nuitka/Nuitka
           ref: main
@@ -120,7 +120,7 @@ jobs:
     container: python:3.5-slim
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions/download-artifact@v4
         with:
