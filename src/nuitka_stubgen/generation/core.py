@@ -36,7 +36,9 @@ class StubGenerationCodemod(Codemod):
 
 def generate_stub(source_code: str) -> str:
     module = cst.parse_module(source_code)
-    return StubGenerationCodemod(CodemodContext()).transform_module(module).code
+    code = StubGenerationCodemod(CodemodContext()).transform_module(module).code
+    # Normalize: avoid trailing blank lines in generated stubs while keeping a final newline.
+    return code.rstrip() + "\n"
 
 
 def write_stub(source_file_path: str | Path, output_file_path: str | Path) -> None:

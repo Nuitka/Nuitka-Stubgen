@@ -20,7 +20,9 @@ if TYPE_CHECKING:
 
 
 _LEGACY_FIXTURES = Path(__file__).parent / "fixtures" / "cases" / "legacy"
-_LEGACY_SOURCES = {d.name: (d / "source.py").read_text(encoding="utf-8") for d in sorted(_LEGACY_FIXTURES.iterdir()) if d.is_dir()}
+_LEGACY_SOURCES = {
+    d.name: (d / "source.py").read_text(encoding="utf-8") for d in sorted(_LEGACY_FIXTURES.iterdir()) if d.is_dir()
+}
 
 requires_python35 = pytest.mark.skipif(
     sys.version_info[:2] != (3, 5),
@@ -88,7 +90,8 @@ class TestVendorTransform:
         sibling shim at runtime.
         """
         relative_imports = [
-            node for node in ast.walk(vendored_tree)
+            node
+            for node in ast.walk(vendored_tree)
             if isinstance(node, ast.ImportFrom)
             and node.level > 0
             and not (node.module == "astunparse" and [a.name for a in node.names] == ["unparse"])
@@ -98,16 +101,9 @@ class TestVendorTransform:
     def test_libcst_imports_are_absent(self, vendored_tree: ast.Module) -> None:
         """The vendored file has no dependency on LibCST."""
         top_imports = [
-            alias.name
-            for node in ast.walk(vendored_tree)
-            if isinstance(node, ast.Import)
-            for alias in node.names
+            alias.name for node in ast.walk(vendored_tree) if isinstance(node, ast.Import) for alias in node.names
         ]
-        from_imports = [
-            node.module
-            for node in ast.walk(vendored_tree)
-            if isinstance(node, ast.ImportFrom)
-        ]
+        from_imports = [node.module for node in ast.walk(vendored_tree) if isinstance(node, ast.ImportFrom)]
         assert "libcst" not in top_imports
         assert "libcst" not in from_imports
 
@@ -150,9 +146,7 @@ class TestVendorRuntime:
         source = _LEGACY_SOURCES[name]
         actual = vendored_module.generate_stub(source)
         for marker in _PY35_CASES[name]:
-            assert marker in actual, (
-                "Marker %r missing from stub for case %r.\nActual:\n%s" % (marker, name, actual)
-            )
+            assert marker in actual, "Marker %r missing from stub for case %r.\nActual:\n%s" % (marker, name, actual)
 
 
 class TestVendorPy35:
@@ -168,6 +162,4 @@ class TestVendorPy35:
         source = _LEGACY_SOURCES[name]
         actual = vendored_module.generate_stub(source)
         for marker in _PY35_CASES[name]:
-            assert marker in actual, (
-                "Marker %r missing from stub for case %r.\nActual:\n%s" % (marker, name, actual)
-            )
+            assert marker in actual, "Marker %r missing from stub for case %r.\nActual:\n%s" % (marker, name, actual)

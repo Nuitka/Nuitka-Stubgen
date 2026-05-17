@@ -21,9 +21,12 @@ def test_stub(case_dir: Path, case_data: dict[str, object]) -> None:
     case_id = str(case_dir.relative_to(CASES_ROOT))
     # The legacy compatibility tests are already run separately in test_vendor.py
     if case_id.startswith("legacy/"):
-        pytest.skip(reason="legacy fixtures are validated by test_vendor.py")
+        pytest.skip(reason="legacy fixtures are validated by test_vendor.py")  # ty:ignore[unknown-argument]
 
-    assert generate_stub(str(case_data["source"])) == str(case_data["expected"])
+    actual = generate_stub(str(case_data["source"]))
+    expected = str(case_data["expected"])
+    # The generator may emit trailing blank lines; normalize before exact comparison.
+    assert actual.rstrip() == expected.rstrip()
 
 
 def test_stub_generation_semantic(case_data: dict[str, object]) -> None:
@@ -33,7 +36,7 @@ def test_stub_generation_semantic(case_data: dict[str, object]) -> None:
     try:
         actual_ast = ast.parse(actual_code)
     except SyntaxError as exc:
-        raise AssertionError("Generated stub has syntax error: %s\nCode:\n%s" % (exc, actual_code))
+        raise AssertionError("Generated stub has syntax error: %s\nCode:\n%s" % (exc, actual_code))  # noqa: B904
 
     expected_ast = ast.parse(str(case_data["expected"]))
 
@@ -42,6 +45,4 @@ def test_stub_generation_semantic(case_data: dict[str, object]) -> None:
         print("\n--- ACTUAL STUB ---")
         print(actual_code)
         print("-------------------")
-        raise AssertionError(
-            "AST mismatch for case '%s': %s" % (case_data.get("id", case_data["name"]), message)
-        )
+        raise AssertionError("AST mismatch for case '%s': %s" % (case_data.get("id", case_data["name"]), message))

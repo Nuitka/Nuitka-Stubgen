@@ -36,7 +36,7 @@ class Source:
         # If we take too many lines, re.search might find comments from other statements.
         col_offset = getattr(node, "col_offset", 0)
         line = self.lines[start_line]
-        return line[col_offset :].split("\n")[0]
+        return line[col_offset:].split("\n")[0]
 
 
 class ImportInfo:
