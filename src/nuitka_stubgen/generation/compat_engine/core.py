@@ -24,7 +24,7 @@ def _unparse(node: ast.AST) -> str:
         return unparse(node)
 
     try:
-        import astunparse  # type: ignore[import-not-found]
+        import astunparse  # ty:ignore[unresolved-import]
 
         return astunparse.unparse(node)
     except Exception:
