@@ -52,7 +52,15 @@ def enabled_package_corpus() -> tuple[str, ...]:
     """Return installed packages that should be part of normal pytest corpus runs."""
     configured = os.environ.get(PACKAGE_ENV)
     if configured is None:
-        return DEFAULT_PACKAGE_CORPUS
+        installed: list[str] = []
+        for package_name in DEFAULT_PACKAGE_CORPUS:
+            try:
+                metadata.distribution(package_name)
+            except metadata.PackageNotFoundError:
+                continue
+            installed.append(package_name)
+
+        return tuple(installed)
     return tuple(package.strip() for package in configured.split(",") if package.strip())
 
 
