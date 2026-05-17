@@ -74,7 +74,7 @@ jobs:
         run: uv run pytest tests/test_vendor.py::TestVendorTransform -v
 
       - name: Upload vendored stub artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: vendored-stub
           path: vendored_output/
