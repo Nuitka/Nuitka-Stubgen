@@ -1,6 +1,6 @@
 [project]
 name = "nuitka-stubgen"
-version = "0.1.0"
+version = "0.2.0"
 license = "MIT"
 requires-python = ">=3.9"
 classifiers = [
