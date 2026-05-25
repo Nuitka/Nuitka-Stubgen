@@ -1,0 +1,9 @@
+from __future__ import annotations
+from typing import Optional
+
+
+x: Optional[int] = ...
+y: int = ...
+
+
+def func(a: str, b: Optional[int]) -> str: ...

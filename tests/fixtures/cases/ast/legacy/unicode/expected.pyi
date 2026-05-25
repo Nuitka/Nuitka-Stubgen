@@ -1,0 +1,3 @@
+from __future__ import annotations
+
+def rocket_test() -> str: ...
