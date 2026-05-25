@@ -1,9 +1,0 @@
-from __future__ import annotations
-from typing import Any
-
-
-windows: dict[str, list[tuple[int, str]]] = ...
-casts: List[Callable[[int], str]] = ...
-
-
-def nested() -> Any: ...

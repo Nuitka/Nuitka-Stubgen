@@ -1,9 +1,0 @@
-{
-  "name": "Nuitka-Stubgen",
-  "mode": "vendored",
-  "dependencies": {
-    "agent-forge/nuitka-stubgen": {
-      "version": "0.1.0"
-    }
-  }
-}

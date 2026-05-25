@@ -1,6 +1,0 @@
-from __future__ import annotations
-
-def foo() -> None: ...
-
-
-def bar() -> None: ...
