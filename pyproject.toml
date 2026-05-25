@@ -18,17 +18,8 @@ classifiers = [
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Typing :: Typed",
 ]
-dependencies = ["libcst>=1.8.6"]
 
 [project.urls]
 Homepage = "https://github.com/Nuitka/Nuitka-Stubgen"
 Repository = "https://github.com/Nuitka/Nuitka-Stubgen"
 Issues = "https://github.com/Nuitka/Nuitka-Stubgen/issues"
-
-[project.scripts]
-nuitka-stubgen = "nuitka_stubgen.cli:main"
-nuitka-stubgen-vendor = "nuitka_stubgen.vendor:main"
-
-[build-system]
-requires = ["uv_build>=0.7.2,<0.8"]
-build-backend = "uv_build"
