@@ -212,17 +212,6 @@ def static_all_names(source, node):
         names.add(value)
     return names
 
-
-_SEGMENT_RSTRIP = (
-    "):",
-    "): ",
-    "),",
-    "->",
-    "-> ",
-    ":",
-)
-
-
 def extract_exported_names(tree, source):
     accumulated = None
     for stmt in tree.body:
