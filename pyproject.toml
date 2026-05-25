@@ -23,3 +23,7 @@ classifiers = [
 Homepage = "https://github.com/Nuitka/Nuitka-Stubgen"
 Repository = "https://github.com/Nuitka/Nuitka-Stubgen"
 Issues = "https://github.com/Nuitka/Nuitka-Stubgen/issues"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
